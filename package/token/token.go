@@ -14,8 +14,10 @@ const (
 	// Identifiers + literals
 	IDENT  = "IDENT"  // add, foobar, x, y, ...
 	INT    = "INT"    // 1343456
+	FLOAT  = "FLOAT"  // 1.23
 	STRING = "STRING" // "foobar"
 	LET    = "LET"    // let keyword
+	FUNC   = "FUNC"   // func keyword
 
 	// Operators
 	ASSIGN   = "="
@@ -29,6 +31,9 @@ const (
 	GT     = ">"
 	EQ     = "=="
 	NOT_EQ = "!="
+
+	COLON          = ":"
+	DECLARE_ASSIGN = ":="
 
 	// Delimiters
 	COMMA     = ","
@@ -51,6 +56,7 @@ const (
 	ELSE     = "ELSE"
 	RETURN   = "RETURN"
 	WHILE    = "WHILE"
+	FOR      = "FOR"
 	PRINT    = "PRINT"
 )
 
@@ -63,7 +69,10 @@ var keywords = map[string]TokenType{
 	"else":   ELSE,
 	"return": RETURN,
 	"while":  WHILE,
+	"for":    FOR,
 	"let":    LET,
+	"func":   FUNCTION,
+	"print":  PRINT,
 }
 
 func LookupIdent(ident string) TokenType {

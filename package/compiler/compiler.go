@@ -45,10 +45,9 @@ func New() *Compiler {
 
 	symbolTable := NewSymbolTable()
 
-	// Initialize built-in functions (commented out as object.Builtins is not defined)
-	// for i, v := range object.Builtins {
-	// 	symbolTable.DefineBuiltin(i, v.Name)
-	// }
+	for i, v := range object.Builtins {
+		symbolTable.DefineBuiltin(i, v.Name)
+	}
 
 	return &Compiler{
 		instructions: code.Instructions{},
@@ -73,305 +72,51 @@ func (c *Compiler) Bytecode() *Bytecode {
 func (c *Compiler) Compile(node ast.Node) error {
 	switch node := node.(type) {
 	case *ast.Program:
-		for _, s := range node.Statements {
-			err := c.Compile(s)
-			if err != nil {
-				return err
-			}
-		}
-
+		return c.compileProgram(node)
 	case *ast.ExpressionStatement:
-		err := c.Compile(node.Expression)
-		if err != nil {
-			return err
-		}
-		c.emit(code.OpPop)
-
+		return c.compileExpressionStatement(node)
 	case *ast.InfixExpression:
-		if node.Operator == "=" {
-			err := c.compileAssignment(node)
-			if err != nil {
-				return err
-			}
-		} else {
-			err := c.Compile(node.Left)
-			if err != nil {
-				return err
-			}
-
-			err = c.Compile(node.Right)
-			if err != nil {
-				return err
-			}
-
-			switch node.Operator {
-			case "+":
-				c.emit(code.OpAdd)
-			case "-":
-				c.emit(code.OpSub)
-			case "*":
-				c.emit(code.OpMul)
-			case "/":
-				c.emit(code.OpDiv)
-			case "%":
-				c.emit(code.OpMod)
-			case "==":
-				c.emit(code.OpEqual)
-			case "!=":
-				c.emit(code.OpNotEqual)
-			case ">":
-				c.emit(code.OpGreaterThan)
-			case "<":
-				c.emit(code.OpLessThan)
-			case ">=":
-				c.emit(code.OpGreaterOrEqual)
-			case "<=":
-				c.emit(code.OpLessOrEqual)
-			default:
-				return fmt.Errorf("unknown operator %s", node.Operator)
-			}
-		}
-
+		return c.compileInfixExpression(node)
 	case *ast.IntegerLiteral:
 		integer := &object.Integer{Value: node.Value}
 		c.emit(code.OpConstant, c.addConstant(integer))
-
 	case *ast.Boolean:
 		if node.Value {
 			c.emit(code.OpTrue)
 		} else {
 			c.emit(code.OpFalse)
 		}
-
 	case *ast.PrefixExpression:
-		err := c.Compile(node.Right)
-		if err != nil {
-			return err
-		}
-
-		switch node.Operator {
-		case "!":
-			c.emit(code.OpBang)
-		case "-":
-			c.emit(code.OpMinus)
-		default:
-			return fmt.Errorf("unknown operator %s", node.Operator)
-		}
-
+		return c.compilePrefixExpression(node)
 	case *ast.IfExpression:
-		err := c.Compile(node.Condition)
-		if err != nil {
-			return err
-		}
-
-		// Emit an `OpJumpNotTruthy` with a bogus value
-		jumpNotTruthyPos := c.emit(code.OpJumpNotTruthy, 9999)
-
-		err = c.Compile(node.Consequence)
-		if err != nil {
-			return err
-		}
-
-		if c.lastInstructionIs(code.OpPop) {
-			c.removeLastPop()
-		}
-
-		// Emit an `OpJump` with a bogus value
-		jumpPos := c.emit(code.OpJump, 9999)
-
-		afterConsequencePos := len(c.scope.instructions)
-		c.changeOperand(jumpNotTruthyPos, afterConsequencePos)
-
-		if node.Alternative == nil {
-			c.emit(code.OpNull)
-		} else {
-			err := c.Compile(node.Alternative)
-			if err != nil {
-				return err
-			}
-
-			if c.lastInstructionIs(code.OpPop) {
-				c.removeLastPop()
-			}
-		}
-
-		afterAlternativePos := len(c.scope.instructions)
-		c.changeOperand(jumpPos, afterAlternativePos)
-
+		return c.compileIfExpression(node)
 	case *ast.BlockStatement:
-		for _, s := range node.Statements {
-			err := c.Compile(s)
-			if err != nil {
-				return err
-			}
-		}
-
-	case *ast.LetStatement:
-		err := c.Compile(node.Value)
-		if err != nil {
-			return err
-		}
-
-		sym := c.symbolTable.Define(node.Name.Value)
-
-		if sym.Scope == symbol.GlobalScope {
-			c.emit(code.OpSetGlobal, sym.Index)
-		} else {
-			c.emit(code.OpSetLocal, sym.Index)
-		}
-
+		return c.compileBlockStatement(node)
+	case *ast.VarStatement:
+		return c.compileVarStatement(node)
 	case *ast.Identifier:
 		symbol, ok := c.symbolTable.Resolve(node.Value)
 		if !ok {
 			return fmt.Errorf("undefined variable %s", node.Value)
 		}
-
 		c.loadSymbol(symbol)
-
 	case *ast.StringLiteral:
 		str := &object.String{Value: node.Value}
 		c.emit(code.OpConstant, c.addConstant(str))
-
 	case *ast.ArrayLiteral:
-		for _, elem := range node.Elements {
-			err := c.Compile(elem)
-			if err != nil {
-				return err
-			}
-		}
-
-		c.emit(code.OpArray, len(node.Elements))
-
+		return c.compileArrayLiteral(node)
 	case *ast.HashLiteral:
-		keys := []ast.Expression{}
-		for k := range node.Pairs {
-			keys = append(keys, k)
-		}
-
-		for _, k := range keys {
-			err := c.Compile(k)
-			if err != nil {
-				return err
-			}
-
-			err = c.Compile(node.Pairs[k])
-			if err != nil {
-				return err
-			}
-		}
-
-		c.emit(code.OpHash, len(node.Pairs)*2)
-
+		return c.compileHashLiteral(node)
 	case *ast.IndexExpression:
-		err := c.Compile(node.Left)
-		if err != nil {
-			return err
-		}
-
-		err = c.Compile(node.Index)
-		if err != nil {
-			return err
-		}
-
-		c.emit(code.OpIndex)
-
+		return c.compileIndexExpression(node)
 	case *ast.FunctionLiteral:
-		c.enterScope()
-
-		for _, p := range node.Parameters {
-			c.symbolTable.Define(p.Value)
-		}
-
-		err := c.Compile(node.Body)
-		if err != nil {
-			return err
-		}
-
-		if c.lastInstructionIs(code.OpPop) {
-			c.replaceLastPopWithReturn()
-		}
-		if !c.lastInstructionIs(code.OpReturnValue) {
-			c.emit(code.OpReturn)
-		}
-
-		// Get free symbols and number of locals before leaving scope
-		freeSymbols := []symbol.Symbol{}
-		numLocals := 0
-		if c.symbolTable != nil {
-			freeSymbols = c.symbolTable.FreeSymbols
-			// Get the number of local variables defined in this scope
-			numLocals = c.symbolTable.NumDefinitions()
-		}
-
-		instructions := c.leaveScope()
-
-		// Load all free variables
-		for _, s := range freeSymbols {
-			c.loadSymbol(s)
-		}
-
-		// Create compiled function
-		compiledFn := &object.CompiledFunction{
-			Instructions:  instructions,
-			NumLocals:     numLocals,
-			NumParameters: len(node.Parameters),
-		}
-
-		// Add the compiled function to constants and emit closure
-		fnIndex := c.addConstant(compiledFn)
-		c.emit(code.OpClosure, fnIndex, len(freeSymbols))
-
+		return c.compileFunctionLiteral(node)
 	case *ast.ReturnStatement:
-		err := c.Compile(node.ReturnValue)
-		if err != nil {
-			return err
-		}
-
-		c.emit(code.OpReturnValue)
-
+		return c.compileReturnStatement(node)
 	case *ast.CallExpression:
-		err := c.Compile(node.Function)
-		if err != nil {
-			return err
-		}
-
-		for _, a := range node.Arguments {
-			err := c.Compile(a)
-			if err != nil {
-				return err
-			}
-		}
-
-		c.emit(code.OpCall, len(node.Arguments))
-
-	case *ast.WhileExpression:
-		// Save the position to jump back to
-		loopStart := len(c.scope.instructions)
-
-		// Compile the condition
-		err := c.Compile(node.Condition)
-		if err != nil {
-			return err
-		}
-
-		// Emit a conditional jump that exits the loop if the condition is false
-		jumpNotTruthyPos := c.emit(code.OpJumpNotTruthy, 9999)
-
-		// Compile the loop body
-		err = c.Compile(node.Body)
-		if err != nil {
-			return err
-		}
-
-		// Add an unconditional jump back to the condition
-		c.emit(code.OpJump, loopStart)
-
-		// Update the jump position to after the loop
-		afterLoopPos := len(c.scope.instructions)
-		c.changeOperand(jumpNotTruthyPos, afterLoopPos)
-
-		// Emit a null value as the result of the while expression
-		c.emit(code.OpNull)
+		return c.compileCallExpression(node)
+	case *ast.ForStatement:
+		return c.compileForStatement(node)
 	}
 
 	return nil
@@ -388,15 +133,15 @@ func (c *Compiler) compileAssignment(node *ast.InfixExpression) error {
 		return err
 	}
 
-	symbol, ok := c.symbolTable.Resolve(ident.Value)
+	sym, ok := c.symbolTable.Resolve(ident.Value)
 	if !ok {
 		return fmt.Errorf("undefined variable %s", ident.Value)
 	}
 
-	if symbol.Scope == symbol.Scope{
-		c.emit(code.OpSetGlobal, symbol.Index)
+	if sym.Scope == symbol.GlobalScope {
+		c.emit(code.OpSetGlobal, sym.Index)
 	} else {
-		c.emit(code.OpSetLocal, symbol.Index)
+		c.emit(code.OpSetLocal, sym.Index)
 	}
 
 	return nil
@@ -412,43 +157,43 @@ func (c *Compiler) emit(op code.Opcode, operands ...int) int {
 }
 
 func (c *Compiler) addInstruction(ins []byte) int {
-	posNewInstruction := len(c.scope.instructions)
-	updatedInstructions := append(c.scope.instructions, ins...)
+	posNewInstruction := len(c.scopes[c.scopeIndex].instructions)
+	updatedInstructions := append(c.scopes[c.scopeIndex].instructions, ins...)
 
-	c.scope.instructions = updatedInstructions
+	c.scopes[c.scopeIndex].instructions = updatedInstructions
 
 	return posNewInstruction
 }
 
 func (c *Compiler) setLastInstruction(op code.Opcode, pos int) {
-	previous := c.scope.lastInstruction
+	previous := c.scopes[c.scopeIndex].lastInstruction
 	last := EmittedInstruction{Opcode: op, Position: pos}
 
-	c.scope.previousInstruction = previous
-	c.scope.lastInstruction = last
+	c.scopes[c.scopeIndex].previousInstruction = previous
+	c.scopes[c.scopeIndex].lastInstruction = last
 }
 
 func (c *Compiler) lastInstructionIs(op code.Opcode) bool {
-	if len(c.scope.instructions) == 0 {
+	if len(c.scopes[c.scopeIndex].instructions) == 0 {
 		return false
 	}
 
-	return c.scope.lastInstruction.Opcode == op
+	return c.scopes[c.scopeIndex].lastInstruction.Opcode == op
 }
 
 func (c *Compiler) removeLastPop() {
-	c.scope.instructions = c.scope.instructions[:c.scope.lastInstruction.Position]
-	c.scope.lastInstruction = c.scope.previousInstruction
+	c.scopes[c.scopeIndex].instructions = c.scopes[c.scopeIndex].instructions[:c.scopes[c.scopeIndex].lastInstruction.Position]
+	c.scopes[c.scopeIndex].lastInstruction = c.scopes[c.scopeIndex].previousInstruction
 }
 
 func (c *Compiler) replaceInstruction(pos int, newInstruction []byte) {
 	for i := 0; i < len(newInstruction); i++ {
-		c.scope.instructions[pos+i] = newInstruction[i]
+		c.scopes[c.scopeIndex].instructions[pos+i] = newInstruction[i]
 	}
 }
 
 func (c *Compiler) changeOperand(opPos int, operand int) {
-	op := code.Opcode(c.scope.instructions[opPos])
+	op := code.Opcode(c.scopes[c.scopeIndex].instructions[opPos])
 	newInstruction := code.Make(op, operand)
 
 	c.replaceInstruction(opPos, newInstruction)
@@ -500,8 +245,8 @@ func (c *Compiler) loadSymbol(s symbol.Symbol) {
 }
 
 func (c *Compiler) replaceLastPopWithReturn() {
-	lastPos := c.scope.lastInstruction.Position
+	lastPos := c.scopes[c.scopeIndex].lastInstruction.Position
 	c.replaceInstruction(lastPos, code.Make(code.OpReturnValue))
 
-	c.scope.lastInstruction.Opcode = code.OpReturnValue
+	c.scopes[c.scopeIndex].lastInstruction.Opcode = code.OpReturnValue
 }

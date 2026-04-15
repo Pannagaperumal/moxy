@@ -34,6 +34,9 @@ const (
 	OpCall                         // Function call
 	OpReturnValue                  // Return with value
 	OpReturn                       // Return (implicit nil)
+	OpGetBuiltin                   // Get built-in function
+	OpGetFree                      // Get free variable
+	OpClosure                      // Create closure
 	OpPop                          // Pop value from stack
 )
 
@@ -72,6 +75,9 @@ var definitions = map[Opcode]*Definition{
 	OpCall:           {"OpCall", []int{1}}, // 1 byte for argument count
 	OpReturnValue:    {"OpReturnValue", []int{}},
 	OpReturn:         {"OpReturn", []int{}},
+	OpGetBuiltin:     {"OpGetBuiltin", []int{1}},
+	OpGetFree:        {"OpGetFree", []int{1}},
+	OpClosure:        {"OpClosure", []int{2, 1}},
 	OpPop:            {"OpPop", []int{}},
 }
 

@@ -1,7 +1,9 @@
-var x=1
-print("i dont know")
+x := 1
+print("Starting sequence...")
 
-while (x<10) {
+for x < 10 {
     print(x)
-    x=x+1
+    x = x + 1
 }
+
+print("Done.")

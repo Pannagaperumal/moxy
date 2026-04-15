@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"encoding/binary"
 	"fmt"
 	"pebble/package/object"
 )
@@ -142,7 +143,7 @@ func (vm *VM) executeHashIndex(hash, index object.Object) error {
 func (vm *VM) executeCall(numArgs int) error {
 	callee := vm.stack[vm.sp-1-numArgs]
 	switch callee := callee.(type) {
-	case *object.CompiledFunction:
+	case *object.Closure:
 		return vm.callFunction(callee, numArgs)
 	case *object.Builtin:
 		return vm.callBuiltin(callee, numArgs)
@@ -151,17 +152,52 @@ func (vm *VM) executeCall(numArgs int) error {
 	}
 }
 
-func (vm *VM) callFunction(fn *object.CompiledFunction, numArgs int) error {
-	if numArgs != fn.NumParameters {
+func (vm *VM) callFunction(cl *object.Closure, numArgs int) error {
+	if numArgs != cl.Fn.NumParameters {
 		return fmt.Errorf("wrong number of arguments: want=%d, got=%d",
-			fn.NumParameters, numArgs)
+			cl.Fn.NumParameters, numArgs)
 	}
 
-	frame := NewFrame(fn, vm.sp-numArgs)
+	frame := NewFrame(cl, vm.sp-numArgs)
 	vm.pushFrame(frame)
-	vm.sp = frame.basePointer + fn.NumLocals
+	vm.sp = frame.basePointer + cl.Fn.NumLocals
 
 	return nil
+}
+
+func (vm *VM) executeArrayLiteral() error {
+	numElements := int(binary.BigEndian.Uint16(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1:]))
+	vm.currentFrame().ip += 2
+
+	array := make([]object.Object, numElements)
+	for i := numElements - 1; i >= 0; i-- {
+		array[i] = vm.pop()
+	}
+
+	return vm.push(&object.Array{Elements: array})
+}
+
+func (vm *VM) executeHashLiteral() error {
+	numPairs := int(binary.BigEndian.Uint16(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1:]))
+	vm.currentFrame().ip += 2
+
+	hash := make(map[object.HashKey]object.HashPair)
+
+	for i := 0; i < numPairs; i++ {
+		value := vm.pop()
+		key := vm.pop()
+
+		pair := object.HashPair{Key: key, Value: value}
+
+		hashKey, ok := key.(object.Hashable)
+		if !ok {
+			return fmt.Errorf("unusable as hash key: %s", key.Type())
+		}
+
+		hash[hashKey.HashKey()] = pair
+	}
+
+	return vm.push(&object.Hash{Pairs: hash})
 }
 
 func (vm *VM) callBuiltin(builtin *object.Builtin, numArgs int) error {

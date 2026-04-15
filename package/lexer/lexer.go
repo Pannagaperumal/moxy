@@ -1,6 +1,9 @@
 package lexer
 
-import "pebble/package/token"
+import (
+	"pebble/package/token"
+	"strings"
+)
 
 type Lexer struct {
 	input        string
@@ -66,6 +69,15 @@ func (l *Lexer) NextToken() token.Token {
 		tok = newToken(token.LT, l.ch)
 	case '>':
 		tok = newToken(token.GT, l.ch)
+	case ':':
+		if l.peekChar() == '=' {
+			ch := l.ch
+			l.readChar()
+			literal := string(ch) + string(l.ch)
+			tok = token.Token{Type: token.DECLARE_ASSIGN, Literal: literal}
+		} else {
+			tok = newToken(token.COLON, l.ch)
+		}
 	case ';':
 		tok = newToken(token.SEMICOLON, l.ch)
 	case ',':
@@ -96,8 +108,12 @@ func (l *Lexer) NextToken() token.Token {
 			tok.Type = token.LookupIdent(tok.Literal)
 			return tok
 		} else if isDigit(l.ch) {
-			tok.Type = token.INT
 			tok.Literal = l.readNumber()
+			if strings.Contains(tok.Literal, ".") {
+				tok.Type = token.FLOAT
+			} else {
+				tok.Type = token.INT
+			}
 			return tok
 		} else {
 			tok = newToken(token.ILLEGAL, l.ch)
@@ -137,7 +153,7 @@ func isLetter(ch byte) bool {
 
 func (l *Lexer) readNumber() string {
 	position := l.position
-	for isDigit(l.ch) {
+	for isDigit(l.ch) || l.ch == '.' {
 		l.readChar()
 	}
 	return l.input[position:l.position]

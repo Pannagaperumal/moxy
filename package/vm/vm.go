@@ -32,23 +32,10 @@ type VM struct {
 	frameIndex int
 }
 
-type Frame struct {
-	fn          *object.CompiledFunction
-	ip          int
-	basePointer int
-}
-
-func NewFrame(fn *object.CompiledFunction, basePointer int) *Frame {
-	return &Frame{
-		fn:          fn,
-		ip:          -1,
-		basePointer: basePointer,
-	}
-}
-
 func New(bytecode *compiler.Bytecode) *VM {
 	mainFn := &object.CompiledFunction{Instructions: bytecode.Instructions}
-	mainFrame := NewFrame(mainFn, 0)
+	mainClosure := &object.Closure{Fn: mainFn}
+	mainFrame := NewFrame(mainClosure, 0)
 
 	frames := make([]*Frame, MaxFrames)
 	frames[0] = mainFrame
@@ -82,20 +69,20 @@ func (vm *VM) popFrame() *Frame {
 }
 
 func (vm *VM) Run() error {
-	for vm.currentFrame().ip < len(vm.currentFrame().fn.Instructions)-1 {
+	for vm.currentFrame().ip < len(vm.currentFrame().cl.Fn.Instructions)-1 {
 		vm.currentFrame().ip++
 
-		top := vm.currentFrame().fn.Instructions[vm.currentFrame().ip]
+		top := vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip]
 
-		// Lookup the opcode to validate it (even though we don't use the definition yet)
 		_, err := Lookup(top)
 		if err != nil {
 			return err
 		}
 
-		switch Opcode(top) {
+		op := Opcode(top)
+		switch op {
 		case OpConstant:
-			constIndex := binary.BigEndian.Uint16(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1:])
+			constIndex := binary.BigEndian.Uint16(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1:])
 			vm.currentFrame().ip += 2
 			err := vm.push(vm.constants[constIndex])
 			if err != nil {
@@ -103,7 +90,7 @@ func (vm *VM) Run() error {
 			}
 
 		case OpAdd, OpSub, OpMul, OpDiv, OpMod, OpEqual, OpNotEqual, OpGreaterThan, OpLessThan, OpGreaterOrEqual, OpLessOrEqual:
-			err := vm.executeBinaryOperation(Opcode(top))
+			err := vm.executeBinaryOperation(op)
 			if err != nil {
 				return err
 			}
@@ -121,102 +108,54 @@ func (vm *VM) Run() error {
 			}
 
 		case OpTrue:
-			err := vm.push(object.TRUE)
-			if err != nil {
-				return err
-			}
-
+			vm.push(object.TRUE)
 		case OpFalse:
-			err := vm.push(object.FALSE)
-			if err != nil {
-				return err
-			}
-
+			vm.push(object.FALSE)
 		case OpNull:
-			err := vm.push(object.NULL)
-			if err != nil {
-				return err
-			}
+			vm.push(object.NULL)
 
 		case OpJumpNotTruthy:
-			pos := int(binary.BigEndian.Uint16(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1:]))
+			pos := int(binary.BigEndian.Uint16(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1:]))
 			vm.currentFrame().ip += 2
-
 			condition := vm.pop()
 			if !isTruthy(condition) {
 				vm.currentFrame().ip = pos - 1
 			}
 
 		case OpJump:
-			pos := int(binary.BigEndian.Uint16(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1:]))
+			pos := int(binary.BigEndian.Uint16(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1:]))
 			vm.currentFrame().ip = pos - 1
 
 		case OpSetGlobal:
-			globalIndex := binary.BigEndian.Uint16(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1:])
+			globalIndex := binary.BigEndian.Uint16(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1:])
 			vm.currentFrame().ip += 2
 			vm.globals[globalIndex] = vm.pop()
 
 		case OpGetGlobal:
-			globalIndex := binary.BigEndian.Uint16(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1:])
+			globalIndex := binary.BigEndian.Uint16(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1:])
 			vm.currentFrame().ip += 2
-
-			err := vm.push(vm.globals[globalIndex])
-			if err != nil {
-				return err
-			}
+			vm.push(vm.globals[globalIndex])
 
 		case OpSetLocal:
-			localIndex := int(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1])
+			localIndex := int(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1])
 			vm.currentFrame().ip++
-
 			frame := vm.currentFrame()
 			vm.stack[frame.basePointer+localIndex] = vm.pop()
 
 		case OpGetLocal:
-			localIndex := int(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1])
+			localIndex := int(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1])
 			vm.currentFrame().ip++
-
 			frame := vm.currentFrame()
-			err := vm.push(vm.stack[frame.basePointer+localIndex])
-			if err != nil {
-				return err
-			}
+			vm.push(vm.stack[frame.basePointer+localIndex])
 
 		case OpArray:
-			numElements := int(binary.BigEndian.Uint16(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1:]))
-			vm.currentFrame().ip += 2
-
-			array := make([]object.Object, numElements)
-			for i := numElements - 1; i >= 0; i-- {
-				array[i] = vm.pop()
-			}
-
-			err := vm.push(&object.Array{Elements: array})
+			err := vm.executeArrayLiteral()
 			if err != nil {
 				return err
 			}
 
 		case OpHash:
-			numPairs := int(binary.BigEndian.Uint16(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1:]))
-			vm.currentFrame().ip += 2
-
-			hash := make(map[object.HashKey]object.HashPair)
-
-			for i := 0; i < numPairs; i++ {
-				value := vm.pop()
-				key := vm.pop()
-
-				pair := object.HashPair{Key: key, Value: value}
-
-				hashKey, ok := key.(object.Hashable)
-				if !ok {
-					return fmt.Errorf("unusable as hash key: %s", key.Type())
-				}
-
-				hash[hashKey.HashKey()] = pair
-			}
-
-			err := vm.push(&object.Hash{Pairs: hash})
+			err := vm.executeHashLiteral()
 			if err != nil {
 				return err
 			}
@@ -224,16 +163,14 @@ func (vm *VM) Run() error {
 		case OpIndex:
 			index := vm.pop()
 			left := vm.pop()
-
 			err := vm.executeIndexExpression(left, index)
 			if err != nil {
 				return err
 			}
 
 		case OpCall:
-			numArgs := int(vm.currentFrame().fn.Instructions[vm.currentFrame().ip+1])
+			numArgs := int(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1])
 			vm.currentFrame().ip++
-
 			err := vm.executeCall(int(numArgs))
 			if err != nil {
 				return err
@@ -250,6 +187,26 @@ func (vm *VM) Run() error {
 			vm.pop() // Pop function from stack
 			vm.push(object.NULL)
 
+		case OpGetBuiltin:
+			builtinIndex := vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1]
+			vm.currentFrame().ip++
+			definition := object.Builtins[builtinIndex]
+			vm.push(definition.Builtin)
+
+		case OpGetFree:
+			freeIndex := int(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1])
+			vm.currentFrame().ip++
+			vm.push(vm.currentFrame().cl.FreeVariables[freeIndex])
+
+		case OpClosure:
+			constIndex := binary.BigEndian.Uint16(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+1:])
+			numFree := int(vm.currentFrame().cl.Fn.Instructions[vm.currentFrame().ip+3])
+			vm.currentFrame().ip += 3
+			err := vm.pushClosure(int(constIndex), numFree)
+			if err != nil {
+				return err
+			}
+
 		case OpPop:
 			vm.pop()
 		}
@@ -258,25 +215,21 @@ func (vm *VM) Run() error {
 	return nil
 }
 
-func (vm *VM) push(o object.Object) error {
-	if vm.sp >= StackSize {
-		return ErrStackOverflow
+func (vm *VM) pushClosure(constIndex int, numFree int) error {
+	constant := vm.constants[constIndex]
+	function, ok := constant.(*object.CompiledFunction)
+	if !ok {
+		return fmt.Errorf("not a function: %+v", constant)
 	}
 
-	vm.stack[vm.sp] = o
-	vm.sp++
+	free := make([]object.Object, numFree)
+	for i := 0; i < numFree; i++ {
+		free[i] = vm.stack[vm.sp-numFree+i]
+	}
+	vm.sp = vm.sp - numFree
 
-	return nil
-}
-
-func (vm *VM) pop() object.Object {
-	o := vm.stack[vm.sp-1]
-	vm.sp--
-	return o
-}
-
-func (vm *VM) LastPoppedStackElem() object.Object {
-	return vm.stack[vm.sp]
+	closure := &object.Closure{Fn: function, FreeVariables: free}
+	return vm.push(closure)
 }
 
 func isTruthy(obj object.Object) bool {
