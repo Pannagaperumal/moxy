@@ -1,218 +1,436 @@
-# 🪨 Moxy
+# 🪨 Moxy - Embeddable Programming Language in Go
 
-**The Scripting Language Go Developers Already Know.**
-
-Moxy is a high-performance, sandboxed scripting language designed specifically for embedding in Go applications. It combines the simplicity of Go with the flexibility of a dynamic scripting engine.
+> A lightweight interpreted programming language built in Go, designed for embeddability, runtime scripting, and extensibility.
 
 ---
 
-## 🚀 Why Moxy?
+# Problem
 
-If you are a Go developer, you've likely faced the "scripting dilemma":
-*   **Lua** is fast but has `1-based` indexing and non-Go syntax.
-*   **Starlark** is safe but restrictive (no recursion) and Python-based.
-*   **Embedded Go** is powerful but complex to sandbox and heavy.
+Most applications eventually require:
 
-**Moxy** bridges this gap by providing a **Go-native VM** that uses a syntax you already know.
+- Runtime scripting
+- Dynamic business rules
+- Modding systems
+- Configuration logic
+- Embedded automation
+- Hot-reloadable behavior
 
-### Core Value Proposition
-- **Go-Like Syntax**: `func`, `var`, `:=`, and `0-based` indexing.
-- **Fast Bytecode VM**: Compiles to bytecode for high performance without JIT overhead.
-- **Pure Go**: Zero-dependency embedding. No CGO.
-- **Safely Sandboxed**: Controlled execution environment for plugins and rules engines.
+Traditional approaches usually rely on:
+
+- Hardcoded logic
+- External scripting runtimes
+- Unsafe eval systems
+- Heavy embedded languages
+
+This introduces several issues:
+
+- Tight coupling between app logic and runtime behavior
+- Difficult extensibility
+- Unsafe execution environments
+- Increased deployment friction
+- Poor control over embedded execution
+
+Moxy solves this by providing:
+
+- A lightweight interpreted language
+- Easy Go integration
+- Runtime script execution
+- Safe sandboxed evaluation
+- Embeddable scripting capabilities
+
+It enables developers to add programmable behavior into applications without requiring recompilation.
 
 ---
 
-## 🛠 Usage
+# Architecture
 
-### In your Go project
-```go
-import "github.com/yourusername/moxy/package/vm"
-import "github.com/yourusername/moxy/package/compiler"
+## High-Level Architecture
 
-func main() {
-    p := parser.New(lexer.New("x := 10; return x + 5;"))
-    prog := p.ParseProgram()
-    
-    comp := compiler.New()
-    bytecode := comp.Compile(prog)
-    
-    machine := vm.New(bytecode)
-    machine.Run()
-    
-    result := machine.LastPoppedStackElem()
-    fmt.Println(result) // 15
-}
+```text
+            Source Code
+                 │
+                 ▼
+        ┌─────────────────┐
+        │      Lexer      │
+        │ Tokenization    │
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │      Parser     │
+        │ Builds AST      │
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │   Abstract      │
+        │ Syntax Tree     │
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │    Evaluator    │
+        │ Runtime Engine  │
+        └────────┬────────┘
+                 │
+                 ▼
+        ┌─────────────────┐
+        │ Runtime Objects │
+        │ Env / Scope     │
+        └─────────────────┘
 ```
 
-### CLI
-```bash
-./moxy examples/demo.pb
+---
+
+# Internal Components
+
+## Lexer
+
+The lexer converts raw source code into tokens.
+
+Example:
+
+```moxy
+let x = 10 + 20;
 ```
 
+Becomes:
+
+```text
+LET IDENT ASSIGN INT PLUS INT SEMICOLON
+```
+
+Responsibilities:
+
+- Token recognition
+- Keyword parsing
+- Operator handling
+- String/int parsing
+- Whitespace skipping
+
 ---
 
-## 📋 Language Specification (v1.0)
+## Parser
 
-| Feature | Syntax |
-|---------|--------|
-| **Variables** | `var x = 1` or `x := 1` |
-| **Functions** | `func add(a, b) { return a + b }` |
-| **Loops** | `while condition { ... }` (Go-style `for` coming soon) |
-| **Conditions**| `if x > 10 { ... } else { ... }` |
-| **Data Types**| `int`, `string`, `bool`, `array`, `map` |
+The parser transforms tokens into an AST (Abstract Syntax Tree).
+
+Example:
+
+```moxy
+1 + 2 * 3
+```
+
+AST:
+
+```text
+      (+)
+     /   \
+   (1)   (*)
+         / \
+       (2) (3)
+```
+
+Responsibilities:
+
+- Pratt parsing
+- Operator precedence
+- Expression parsing
+- Statement parsing
+- Syntax validation
 
 ---
 
-## 🌟 Practical Examples
+## AST Layer
 
-### 1. Business Rule Engine
-```go
-// discount_rules.pb
-func calculate_discount(order) {
-    if order.total > 500 {
-        return order.total * 0.1 // 10% off
+The AST represents the program structure independent of execution.
+
+Node types include:
+
+- Let statements
+- Return statements
+- Function literals
+- Call expressions
+- If expressions
+- Array literals
+- Hash maps
+- Loops
+
+This separation makes future compiler/bytecode support easier.
+
+---
+
+## Evaluator
+
+The evaluator walks the AST and executes code.
+
+Responsibilities:
+
+- Expression evaluation
+- Scope resolution
+- Function execution
+- Runtime object creation
+- Control flow execution
+
+Supported runtime types:
+
+- Integers
+- Booleans
+- Strings
+- Arrays
+- Maps
+- Functions
+- Null
+
+---
+
+## Environment System
+
+Moxy uses scoped environments for variable resolution.
+
+```text
+Global Scope
+   │
+   ├── Function Scope
+   │       │
+   │       └── Nested Scope
+```
+
+This enables:
+
+- Closures
+- Lexical scoping
+- Function isolation
+- Runtime safety
+
+---
+
+# Language Features
+
+## Core Features
+
+- Variables
+- Arithmetic operations
+- Boolean expressions
+- Conditionals
+- Functions
+- Arrays
+- Hash maps
+- Loops
+- Built-in functions
+
+---
+
+## Example
+
+```moxy
+let fibonacci = fn(n) {
+    if (n < 2) {
+        return n;
     }
-    return 0
-}
+
+    return fibonacci(n - 1) + fibonacci(n - 2);
+};
+
+print(fibonacci(10));
 ```
 
-### 2. Plugin System
+---
+
+# Tech Stack
+
+## Core Runtime
+
+- Go
+- Custom AST
+- Pratt Parser
+- Recursive Evaluator
+
+---
+
+## Tooling
+
+- Go Modules
+- CLI Runtime
+- REPL Support
+
+---
+
+# Scaling Considerations
+
+Although Moxy is currently an interpreted language, the architecture is intentionally designed for future scalability.
+
+---
+
+## AST Separation
+
+The AST layer enables future support for:
+
+- Bytecode compilation
+- JIT execution
+- Static analysis
+- Optimization passes
+
+without rewriting the parser.
+
+---
+
+## Embeddable Runtime
+
+Moxy can be embedded directly into Go applications:
+
 ```go
-// filter.pb
-func process(event) {
-    if event.type == "metric" && event.value < 0 {
-        return null // drop invalid metrics
+engine := moxy.New()
+
+engine.Execute(script)
+```
+
+This enables:
+
+- Game scripting
+- Plugin systems
+- Workflow engines
+- Runtime automation
+
+---
+
+## Sandboxed Execution
+
+The runtime is intentionally isolated from direct system access.
+
+Benefits:
+
+- Safer embedded execution
+- Controlled APIs
+- Reduced attack surface
+
+Future capability-based permissions can extend this further.
+
+---
+
+# Tradeoffs
+
+## Advantages
+
+- Lightweight runtime
+- Simple architecture
+- Easy embeddability
+- Beginner-friendly interpreter design
+- Extensible language core
+
+---
+
+## Limitations
+
+- Interpreted execution is slower than compiled runtimes
+- No static typing
+- No bytecode VM yet
+- Limited standard library
+- Garbage collection relies on Go runtime
+
+---
+
+# Example Workflow
+
+## Example Program
+
+```moxy
+let nums = [1, 2, 3, 4];
+
+let sum = fn(arr) {
+    let total = 0;
+
+    for (x in arr) {
+        total = total + x;
     }
-    return event
-}
+
+    return total;
+};
+
+print(sum(nums));
 ```
 
 ---
 
-## ⚖️ Comparison
+## Execution Flow
 
-| | Moxy | Lua | Starlark |
-|---|---|---|---|
-| **Syntax** | **Go** | Pascal/C | Python |
-| **Indexing** | **0-based** | 1-based | 0-based |
-| **Implementation** | **Pure Go** | C (GopherLua is Go) | Go/Java |
-| **Performance** | **High** | Extreme (C) | Moderate |
+### Step 1 — Lexing
+
+Source code becomes tokens.
 
 ---
 
-## Architecture Diagram
+### Step 2 — Parsing
 
-```mermaid
-flowchart TD
+Tokens are transformed into AST nodes.
 
-subgraph group_entrypoints["Entry points"]
-  node_cli["CLI<br/>command<br/>[main.go]"]
-  node_repl(("REPL<br/>interactive shell<br/>[repl.go]"))
-  node_host_api["Host API<br/>embedding surface<br/>[moxy.go]"]
-  node_public_pkg["moxy pkg<br/>public package"]
-end
+---
 
-subgraph group_frontend["Language frontend"]
-  node_token["Tokens<br/>[token.go]"]
-  node_lexer["Lexer<br/>scanner<br/>[lexer.go]"]
-  node_parser["Parser<br/>[parser.go]"]
-  node_ast["AST<br/>syntax tree<br/>[ast.go]"]
-end
+### Step 3 — Evaluation
 
-subgraph group_runtime["Runtime core"]
-  node_compiler["Compiler<br/>[compiler.go]"]
-  node_symbols["Symbols<br/>name resolution<br/>[symbol_table.go]"]
-  node_code["Bytecode<br/>instruction set<br/>[code.go]"]
-  node_vm["VM<br/>[vm.go]"]
-  node_frame["Frames<br/>[frame.go]"]
-  node_stack["Stack<br/>[stack.go]"]
-  node_evaluator["Evaluator<br/>tree-walk interpreter<br/>[evaluator.go]"]
-  node_types[("Runtime Types<br/>value system<br/>[object.go]")]
-end
+Evaluator recursively walks the AST.
 
-subgraph group_embedding["Embedding boundary"]
-  node_plugin_host["Plugin Host<br/>integration boundary"]
-end
+---
 
-subgraph group_examples["Examples"]
-  node_std_examples["Std Examples<br/>scripts"]
-  node_plugin_example["Plugin Example<br/>host demo<br/>[host.go]"]
-end
+### Step 4 — Runtime Execution
 
-subgraph group_docs["Docs"]
-  node_docs_arch["Design Docs<br/>architecture docs<br/>[VM_ARCHITECTURE.md]"]
-end
+Objects/functions/scopes are created dynamically.
 
-node_cli -->|"runs"| node_lexer
-node_repl -->|"feeds"| node_lexer
-node_host_api -->|"embeds"| node_compiler
-node_host_api -->|"embeds"| node_evaluator
-node_lexer -->|"produces"| node_token
-node_lexer -->|"streams"| node_parser
-node_token -->|"consumed by"| node_parser
-node_parser -->|"builds"| node_ast
-node_ast -->|"compiled by"| node_compiler
-node_ast -->|"executed by"| node_evaluator
-node_compiler -->|"resolves"| node_symbols
-node_compiler -->|"emits"| node_code
-node_code -->|"loads"| node_vm
-node_symbols -->|"supports"| node_vm
-node_vm -->|"uses"| node_frame
-node_vm -->|"uses"| node_stack
-node_vm -->|"creates"| node_types
-node_evaluator -->|"creates"| node_types
-node_plugin_host -->|"exposes"| node_types
-node_plugin_example -->|"demonstrates"| node_plugin_host
-node_std_examples -->|"exercises"| node_compiler
-node_std_examples -->|"exercises"| node_evaluator
-node_docs_arch -->|"describes"| node_vm
+---
 
-click node_cli "https://github.com/pannagaperumal/moxy/blob/master/cmd/moxy/main.go"
-click node_repl "https://github.com/pannagaperumal/moxy/blob/master/internal/repl/repl.go"
-click node_host_api "https://github.com/pannagaperumal/moxy/blob/master/moxy.go"
-click node_public_pkg "https://github.com/pannagaperumal/moxy/tree/master/moxy"
-click node_token "https://github.com/pannagaperumal/moxy/blob/master/internal/token/token.go"
-click node_lexer "https://github.com/pannagaperumal/moxy/blob/master/internal/lexer/lexer.go"
-click node_parser "https://github.com/pannagaperumal/moxy/blob/master/internal/parser/parser.go"
-click node_ast "https://github.com/pannagaperumal/moxy/blob/master/ast/ast.go"
-click node_compiler "https://github.com/pannagaperumal/moxy/blob/master/internal/compiler/compiler.go"
-click node_symbols "https://github.com/pannagaperumal/moxy/blob/master/internal/compiler/symbol_table.go"
-click node_code "https://github.com/pannagaperumal/moxy/blob/master/internal/code/code.go"
-click node_vm "https://github.com/pannagaperumal/moxy/blob/master/internal/vm/vm.go"
-click node_frame "https://github.com/pannagaperumal/moxy/blob/master/internal/vm/frame.go"
-click node_stack "https://github.com/pannagaperumal/moxy/blob/master/internal/vm/stack.go"
-click node_evaluator "https://github.com/pannagaperumal/moxy/blob/master/internal/evaluator/evaluator.go"
-click node_types "https://github.com/pannagaperumal/moxy/blob/master/types/object.go"
-click node_plugin_host "https://github.com/pannagaperumal/moxy/tree/master/plugin_host"
-click node_std_examples "https://github.com/pannagaperumal/moxy/tree/master/examples/standard_examples"
-click node_plugin_example "https://github.com/pannagaperumal/moxy/blob/master/examples/plugin_example/host.go"
-click node_docs_arch "https://github.com/pannagaperumal/moxy/blob/master/docs/VM_ARCHITECTURE.md"
+### Step 5 — Output
 
-classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
-classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
-classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
-classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
-classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
-classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
-classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
-class node_cli,node_repl,node_host_api,node_public_pkg toneBlue
-class node_token,node_lexer,node_parser,node_ast toneAmber
-class node_compiler,node_symbols,node_code,node_vm,node_frame,node_stack,node_evaluator,node_types toneMint
-class node_plugin_host toneRose
-class node_std_examples,node_plugin_example toneIndigo
-class node_docs_arch toneTeal
+```text
+10
 ```
----
-## 🛤 Roadmap
-
-1.  **Phase 1 (Current)**: VM and Bytecode foundations.
-2.  **Phase 2**: Standardize syntax (`func` and `:=` enforcement).
-3.  **Phase 3**: Standard library (JSON, Math, Time).
-4.  **Phase 4**: Concurrency-lite (channels and fibers).
 
 ---
 
-## 🤝 Contributing
+# Future Roadmap
 
-We are in early development! Feel free to open issues or PRs. Read our [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+## Short Term
+
+- Better error handling
+- Improved REPL
+- Module system
+- File imports
+- Standard library expansion
+
+---
+
+## Mid Term
+
+- Bytecode compiler
+- Virtual machine (VM)
+- Performance optimizations
+- Debugger support
+- Package manager
+
+---
+
+## Long Term
+
+- JIT compilation
+- WASM target
+- Concurrency primitives
+- Native FFI bindings
+- Language server support (LSP)
+
+---
+
+# Why Moxy Matters
+
+Most embedded scripting systems are either:
+
+- Too heavy
+- Too unsafe
+- Too difficult to customize
+
+Moxy aims to provide:
+
+> A lightweight, hackable, embeddable language runtime for modern Go applications.
+
+It serves as both:
+
+- A practical embeddable scripting engine
+- A deep exploration into language/runtime engineering
+- A foundation for future VM and compiler experimentation
